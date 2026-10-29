@@ -1,0 +1,29 @@
+{
+  "model": "LogisticRegression",
+  "preprocessing": "StandardScaler (z = (x - mean) / std)",
+  "target": "failure_7d (1 = failure within 7 days)",
+  "n_samples": 4000,
+  "failure_rate": 0.209,
+  "accuracy": 0.789,
+  "roc_auc": 0.716,
+  "features": [
+    "vibration",
+    "temperature",
+    "pressure",
+    "current_draw",
+    "hours_since_service",
+    "oil_quality",
+    "noise_level"
+  ],
+  "coefficients": {
+    "vibration": 0.3506,
+    "temperature": 0.494,
+    "pressure": 0.2586,
+    "current_draw": 0.2753,
+    "hours_since_service": 0.3943,
+    "oil_quality": -0.4041,
+    "noise_level": 0.1956
+  },
+  "intercept": -1.549,
+  "data_note": "Synthetic data generated for demonstration; replace with real sensor logs."
+}

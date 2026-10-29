@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TrustBridge</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#eef2f6; --panel:#ffffff; --ink:#14233a; --muted:#5d6b80; --line:#cfd8e3;
+          --span:#1f6f8b; --good:#2a8a5b; --bad:#c2503a; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:"Bricolage Grotesque",system-ui,sans-serif; line-height:1.5; }
+  main { max-width:960px; margin:0 auto; padding:32px 20px 64px; }
+  h1 { font-size:clamp(2rem,6vw,3.2rem); font-weight:800; margin:0 0 4px; letter-spacing:-0.02em; }
+  .sub { color:var(--muted); margin:0 0 28px; max-width:56ch; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+  @media (max-width:760px){ .grid{ grid-template-columns:1fr; } }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:22px; }
+  h2 { font-size:1.05rem; margin:0 0 14px; }
+  .row { margin-bottom:14px; }
+  .row label { display:flex; justify-content:space-between; font-size:.92rem; margin-bottom:4px; }
+  input[type=range] { width:100%; accent-color:var(--span); }
+  select, button { font:inherit; width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--line); background:#fff; color:var(--ink); }
+  button { background:var(--span); color:#fff; border:0; font-weight:600; cursor:pointer; margin-top:8px; }
+  button:hover { background:#18586f; }
+  :focus-visible { outline:3px solid #f2b43c; outline-offset:2px; }
+  .hint { color:var(--muted); font-size:.85rem; margin:6px 0 14px; }
+  /* the bridge: a span that fills left to right with the score */
+  .bridge { position:relative; height:46px; margin:8px 0 6px; }
+  .deck { position:absolute; left:0; right:0; bottom:8px; height:6px; background:var(--line); border-radius:3px; }
+  .fill { position:absolute; left:0; bottom:8px; height:6px; background:var(--span); border-radius:3px; width:0; transition:width .6s ease; }
+  .pylon { position:absolute; bottom:8px; width:3px; height:30px; background:var(--ink); transform:translateX(-1px); }
+  .score { font-size:3rem; font-weight:800; line-height:1; }
+  .label { color:var(--muted); margin-bottom:10px; }
+  .contrib { display:grid; grid-template-columns:110px 1fr 56px; align-items:center; gap:8px; font-size:.88rem; margin:6px 0; }
+  .track { position:relative; height:10px; background:#f1f4f8; border-radius:5px; }
+  .bar { position:absolute; top:0; height:10px; border-radius:5px; }
+  .mid { position:absolute; left:50%; top:-3px; width:1px; height:16px; background:var(--muted); }
+  .rec { margin-top:16px; padding:12px 14px; border-left:4px solid var(--span); background:#f4f8fb; border-radius:0 8px 8px 0; }
+  .empty { color:var(--muted); }
+  .err { color:var(--bad); }
+</style>
+</head>
+<body>
+<main>
+  <h1>TrustBridge</h1>
+  <p class="sub">Rate each signal from 0 to 100, pick who is judging, and see the trust score along with the signals behind it.</p>
+
+  <div class="grid">
+    <section>
+      <h2>Trust signals</h2>
+      <div id="sliders"></div>
+      <div class="row">
+        <label for="persona">Judge as</label>
+        <select id="persona"></select>
+        <p class="hint" id="personaHint"></p>
+      </div>
+      <button id="go">Get trust score</button>
+    </section>
+
+    <section id="result">
+      <h2>Result</h2>
+      <p class="empty" id="empty">Set the signals and choose Get trust score.</p>
+      <div id="out" hidden>
+        <div class="score" id="score"></div>
+        <div class="label" id="label"></div>
+        <div class="bridge" aria-hidden="true">
+          <div class="pylon" style="left:0"></div><div class="deck"></div><div class="fill" id="fill"></div>
+          <div class="pylon" style="right:0"></div>
+        </div>
+        <h2 style="margin-top:18px">What drove this score</h2>
+        <div id="contribs"></div>
+        <div class="rec" id="rec"></div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script>
+const API = location.protocol === "file:" ? "http://127.0.0.1:8000" : "";
+const SIGNALS = {
+  reliability: ["Reliability", 90], transparency: ["Transparency", 80], responsiveness: ["Responsiveness", 60],
+  community: ["Community feedback", 85], verification: ["Verification", 95]
+};
+const $ = id => document.getElementById(id);
+let personas = {};
+
+$("sliders").innerHTML = Object.entries(SIGNALS).map(([k, [name, v]]) => `
+  <div class="row"><label for="${k}">${name}<b id="${k}-v">${v}</b></label>
+  <input type="range" id="${k}" min="0" max="100" value="${v}"></div>`).join("");
+Object.keys(SIGNALS).forEach(k => $(k).oninput = () => $(k + "-v").textContent = $(k).value);
+
+async function init() {
+  try {
+    personas = await (await fetch(API + "/personas")).json();
+    $("persona").innerHTML = Object.entries(personas).map(([k, p]) => `<option value="${k}">${p.name}</option>`).join("");
+    showHint();
+  } catch { $("empty").innerHTML = '<span class="err">Cannot reach the API. Start the backend first.</span>'; }
+}
+function showHint() { $("personaHint").textContent = personas[$("persona").value]?.description || ""; }
+$("persona").onchange = showHint;
+
+$("go").onclick = async () => {
+  const body = Object.fromEntries(Object.keys(SIGNALS).map(k => [k, +$(k).value]));
+  try {
+    const res = await fetch(`${API}/score/persona/${$("persona").value}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!res.ok) throw new Error("Request failed (" + res.status + ")");
+    render(await res.json());
+  } catch (e) { $("empty").hidden = false; $("out").hidden = true; $("empty").innerHTML = `<span class="err">${e.message}</span>`; }
+};
+
+function render(r) {
+  $("empty").hidden = true; $("out").hidden = false;
+  $("score").textContent = r.trust_score + "%";
+  $("label").textContent = `${r.label} for the ${r.persona.name} view`;
+  requestAnimationFrame(() => $("fill").style.width = r.trust_score + "%");
+  const max = Math.max(...r.explanation.map(e => Math.abs(e.contribution)), 0.01);
+  $("contribs").innerHTML = r.explanation.map(e => {
+    const pct = Math.abs(e.contribution) / max * 50, pos = e.contribution >= 0;
+    const style = pos ? `left:50%;width:${pct}%;background:var(--good)` : `left:${50 - pct}%;width:${pct}%;background:var(--bad)`;
+    return `<div class="contrib"><span>${SIGNALS[e.feature][0]}</span>
+      <div class="track"><div class="mid"></div><div class="bar" style="${style}"></div></div>
+      <span>${e.contribution > 0 ? "+" : ""}${e.contribution}</span></div>`;
+  }).join("");
+  $("rec").textContent = r.recommendation;
+}
+init();
+</script>
+</body>
+</html>

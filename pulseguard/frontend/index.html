@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PulseGuard</title>
+<style>
+  :root { --bg:#0f1720; --card:#17212c; --line:#263443; --text:#e6edf3; --mut:#8ea1b3; --acc:#2dd4bf; --low:#34d399; --med:#fbbf24; --high:#f87171; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, sans-serif; background:var(--bg); color:var(--text); }
+  header { padding:20px 24px; border-bottom:1px solid var(--line); }
+  header h1 { margin:0; font-size:22px; letter-spacing:.3px; }
+  header h1 span { color:var(--acc); }
+  header p { margin:4px 0 0; color:var(--mut); font-size:14px; }
+  main { display:grid; grid-template-columns: 1fr 1fr; gap:20px; padding:20px 24px; max-width:1100px; margin:auto; }
+  @media (max-width:800px){ main{ grid-template-columns:1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px; }
+  h2 { margin:0 0 12px; font-size:15px; color:var(--mut); text-transform:uppercase; letter-spacing:.8px; font-weight:600; }
+  .row { margin-bottom:14px; }
+  .row label { display:flex; justify-content:space-between; font-size:14px; margin-bottom:4px; }
+  .row label b { color:var(--acc); font-weight:600; }
+  input[type=range] { width:100%; accent-color: var(--acc); }
+  select, button { width:100%; padding:10px; border-radius:8px; border:1px solid var(--line); background:#0f1720; color:var(--text); font-size:15px; }
+  button { background:var(--acc); color:#04201c; font-weight:700; border:0; cursor:pointer; margin-top:10px; }
+  button:hover { filter:brightness(1.08); }
+  .persona-focus { font-size:13px; color:var(--mut); margin:6px 0 14px; min-height:18px; }
+  .gauge { text-align:center; padding:6px 0 14px; }
+  .gauge .num { font-size:54px; font-weight:800; line-height:1; }
+  .gauge .band { display:inline-block; margin-top:8px; padding:3px 12px; border-radius:99px; font-size:13px; font-weight:700; color:#0b1117; }
+  .sub { color:var(--mut); font-size:13px; margin-top:6px; }
+  .bar { display:flex; align-items:center; gap:8px; font-size:13px; margin:6px 0; }
+  .bar .name { width:140px; color:var(--text); }
+  .bar .track { flex:1; height:10px; background:#0f1720; border-radius:5px; position:relative; }
+  .bar .fill { position:absolute; top:0; height:100%; border-radius:5px; }
+  .bar .val { width:46px; text-align:right; color:var(--mut); font-variant-numeric: tabular-nums; }
+  ul { margin:6px 0 0; padding-left:18px; font-size:14px; line-height:1.5; }
+  .muted { color:var(--mut); font-size:14px; }
+  footer { text-align:center; color:var(--mut); font-size:12px; padding:14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Pulse<span>Guard</span></h1>
+  <p>Persona-aware machine health scoring &amp; maintenance recommendations</p>
+</header>
+
+<main>
+  <section class="card">
+    <h2>1. Machine signals</h2>
+    <div id="sliders"></div>
+    <h2 style="margin-top:18px">2. Who is asking?</h2>
+    <select id="persona"></select>
+    <div class="persona-focus" id="focus"></div>
+    <button id="go">Analyse machine</button>
+  </section>
+
+  <section class="card" id="result">
+    <h2>3. Result</h2>
+    <p class="muted">Adjust the sensor values, choose a persona and press <b>Analyse machine</b>.</p>
+  </section>
+</main>
+<footer>Model trained on synthetic data for demonstration. Logistic Regression + StandardScaler.</footer>
+
+<script>
+const API = location.origin.startsWith("http") ? "" : "http://localhost:8000";
+const SIGNALS = [
+  { key:"vibration", label:"Vibration", unit:"mm/s", min:0.5, max:12, step:0.1, val:3.5 },
+  { key:"temperature", label:"Temperature", unit:"°C", min:30, max:120, step:1, val:62 },
+  { key:"pressure", label:"Pressure deviation", unit:"bar", min:0, max:3, step:0.1, val:0.8 },
+  { key:"current_draw", label:"Motor current", unit:"A", min:5, max:40, step:0.5, val:17 },
+  { key:"hours_since_service", label:"Hours since service", unit:"h", min:0, max:2000, step:10, val:600 },
+  { key:"oil_quality", label:"Oil quality", unit:"%", min:0, max:100, step:1, val:70 },
+  { key:"noise_level", label:"Noise level", unit:"dB", min:60, max:110, step:1, val:78 },
+];
+const sliders = document.getElementById("sliders");
+SIGNALS.forEach(s => {
+  const d = document.createElement("div"); d.className = "row";
+  d.innerHTML = `<label>${s.label}<b id="v_${s.key}">${s.val} ${s.unit}</b></label>
+    <input type="range" id="${s.key}" min="${s.min}" max="${s.max}" step="${s.step}" value="${s.val}">`;
+  sliders.appendChild(d);
+  d.querySelector("input").addEventListener("input", e => {
+    document.getElementById("v_"+s.key).textContent = e.target.value + " " + s.unit;
+  });
+});
+
+let personas = {};
+async function loadPersonas() {
+  const r = await fetch(API + "/personas");
+  personas = await r.json();
+  const sel = document.getElementById("persona");
+  sel.innerHTML = Object.entries(personas).map(([k,v]) => `<option value="${k}">${v.name}</option>`).join("");
+  const show = () => document.getElementById("focus").textContent = "Focus: " + personas[sel.value].focus;
+  sel.addEventListener("change", show); show();
+}
+
+function colorFor(band){ return band==="LOW" ? "var(--low)" : band==="MEDIUM" ? "var(--med)" : "var(--high)"; }
+
+async function analyse() {
+  const body = {};
+  SIGNALS.forEach(s => body[s.key] = parseFloat(document.getElementById(s.key).value));
+  const key = document.getElementById("persona").value;
+  const res = await fetch(API + "/score/persona/" + key, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(body) });
+  if (!res.ok) { document.getElementById("result").innerHTML = "<h2>Result</h2><p class='muted'>Request failed.</p>"; return; }
+  render(await res.json());
+}
+
+function render(d) {
+  const entries = Object.entries(d.contributions);
+  const maxAbs = Math.max(...entries.map(([,v]) => Math.abs(v)), 0.5);
+  const bars = entries.sort((a,b) => b[1]-a[1]).map(([name,v]) => {
+    const w = Math.abs(v)/maxAbs*50;
+    const style = v >= 0 ? `left:50%;width:${w}%;background:var(--high)` : `left:${50-w}%;width:${w}%;background:var(--low)`;
+    return `<div class="bar"><span class="name">${name}</span><div class="track"><div class="fill" style="${style}"></div></div><span class="val">${v>0?"+":""}${v.toFixed(2)}</span></div>`;
+  }).join("");
+  const drivers = d.top_risk_drivers.map(x => x.label).join(", ") || "None significant";
+  const good = d.healthy_signals.map(x => x.label).join(", ") || "None notable";
+  document.getElementById("result").innerHTML = `
+    <h2>3. Result &mdash; ${d.persona}</h2>
+    <div class="gauge">
+      <div class="num" style="color:${colorFor(d.risk_band)}">${d.health_score}</div>
+      <div class="sub">Machine health score (out of 100)</div>
+      <span class="band" style="background:${colorFor(d.risk_band)}">${d.risk_band} RISK &middot; ${(d.failure_risk*100).toFixed(1)}% failure chance in 7 days</span>
+    </div>
+    <h2>Why this result?</h2>
+    <div class="sub" style="margin:0 0 6px">Red pushes risk up, green pushes it down.</div>
+    ${bars}
+    <p class="muted" style="margin-top:12px"><b>Main risk drivers:</b> ${drivers}<br><b>Healthy signals:</b> ${good}</p>
+    <h2 style="margin-top:14px">Recommendation</h2>
+    <ul>${d.recommendations.map(r => `<li>${r}</li>`).join("")}</ul>`;
+}
+
+document.getElementById("go").addEventListener("click", analyse);
+loadPersonas();
+</script>
+</body>
+</html>
